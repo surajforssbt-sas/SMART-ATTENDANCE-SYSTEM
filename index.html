@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mark Attendance</title>
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-dark: #1d4ed8;
+      --success: #16a34a;
+      --danger: #dc2626;
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --text: #1e293b;
+      --muted: #64748b;
+      --border: #e2e8f0;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 16px;
+      max-width: 480px;
+      margin: 0 auto;
+    }
+    h1 { font-size: 20px; margin: 8px 0 4px; }
+    .subtitle { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; margin-top: 14px; }
+    label:first-child { margin-top: 0; }
+    select, input[type="text"], input[type="file"] {
+      width: 100%;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 15px;
+      background: #fff;
+    }
+    button {
+      width: 100%;
+      padding: 15px;
+      border: none;
+      border-radius: 10px;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-top: 18px;
+      background: var(--primary);
+      color: white;
+    }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button:active:not(:disabled) { background: var(--primary-dark); }
+    .preview { width: 100%; max-width: 160px; border-radius: 10px; margin-top: 10px; display: none; }
+    .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+    button.secondary { background: #64748b; margin-top: 10px; }
+    .banner { background: #fff7ed; border: 1px solid #fdba74; color: #9a3412; padding: 10px 12px; border-radius: 10px; font-size: 13px; margin-bottom: 12px; display: none; }
+    input.code { letter-spacing: 8px; text-align: center; font-size: 22px; font-weight: 700; }
+    .msg { font-size: 14px; margin-top: 14px; padding: 12px; border-radius: 10px; text-align: center; font-weight: 600; }
+    .msg-error { background: #fee2e2; color: var(--danger); }
+    .msg-ok { background: #dcfce7; color: var(--success); }
+    .msg-info { background: #dbeafe; color: var(--primary-dark); }
+    .step { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); }
+    .dot.done { background: var(--success); }
+  </style>
+</head>
+<body>
+  <div id="inAppBanner" class="banner">⚠️ You seem to be inside another app's browser. Camera and Location often fail there. Tap the ⋮ menu (top right) → <b>Open in Chrome</b>, then mark your attendance.</div>
+
+  <h1>Mark Your Attendance</h1>
+  <div class="subtitle">Select your Division and Roll Number, enter the 4-digit Session Code your teacher shows in class, and take a live photo. A working internet connection is needed to mark attendance — this can take a few seconds for an accurate location.</div>
+
+  <div class="card">
+    <label for="divisionSelect">Division</label>
+    <select id="divisionSelect">
+      <option value="">-- Select --</option>
+    </select>
+
+    <label for="rollSelect">Roll Number</label>
+    <select id="rollSelect" disabled>
+      <option value="">-- Select Division first --</option>
+    </select>
+
+    <div id="codeWrap">
+      <label for="codeInput">Session Code (from your teacher)</label>
+      <input type="text" id="codeInput" class="code" inputmode="numeric" maxlength="4" placeholder="----" autocomplete="off">
+    </div>
+
+    <label id="photoLabel">Live Photo (camera only)</label>
+    <video id="cameraVideo" autoplay playsinline muted style="display:none; width:100%; border-radius:10px; background:#000; margin-top:4px;"></video>
+    <button type="button" id="openCameraBtn" class="secondary">📷 Open Camera</button>
+    <button type="button" id="captureBtn" style="display:none;">Capture Photo</button>
+    <button type="button" id="retakeBtn" class="secondary" style="display:none;">Retake</button>
+    <div id="fallbackBox" style="display:none; margin-top:10px;">
+      <input type="file" id="photoInput" accept="image/*" capture="user">
+    </div>
+    <img id="preview" class="preview">
+    <div id="photoInfo" class="hint"></div>
+
+    <button id="submitBtn" disabled>Mark Attendance</button>
+
+    <div class="step"><span class="dot" id="dotDiv"></span> Division selected</div>
+    <div class="step"><span class="dot" id="dotRoll"></span> Roll number selected</div>
+    <div class="step"><span class="dot" id="dotCode"></span> Session code entered</div>
+    <div class="step"><span class="dot" id="dotPhoto"></span> Photo captured</div>
+
+    <div id="resultMsg"></div>
+  </div>
+
+  <script>
+    // ====== SET THIS ONCE: your Apps Script Web App URL (the one ending in /exec) ======
+    const API_URL = "https://script.google.com/macros/s/AKfycby0e7WHl2DiqxF1y2nmkcys0qwkFkFdFrket0GwbxSlWu39agWrnmjy1BB1Nq6IXzjMkQ/exec";
+    // ===================================================================================
+
+    const CAMERA_FACING = 'user';        // 'user' = front (selfie) camera, 'environment' = back camera
+    const MAX_PHOTO_AGE_SECONDS = 180;   // (file fallback only) the photo must have been taken within the last 3 minutes
+    const KEY_CFG = 'att_cfg_v1';
+
+    let cfg = { requirePhoto: true, requireCode: true, blockIfOutside: true };
+    let photoDataUrl = null;
+    let cameraStream = null;
+    let syncing = false;
+    let retryTimer = null;
+
+    const $ = function(id) { return document.getElementById(id); };
+
+    // ---------- small helpers ----------
+    function lsGet(key, fallback) {
+      try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch (e) { return fallback; }
+    }
+    function lsSet(key, value) {
+      try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch (e) { return false; }
+    }
+    function showMsg(text, type) {
+      const el = $('resultMsg');
+      el.className = text ? 'msg msg-' + type : '';
+      el.textContent = text;
+    }
+    function withTimeout(factory, ms) {
+      const ctrl = new AbortController();
+      const t = setTimeout(function() { ctrl.abort(); }, ms);
+      return factory(ctrl.signal).finally(function() { clearTimeout(t); });
+    }
+    async function apiGet(params, ms) {
+      const url = API_URL + (API_URL.indexOf('?') === -1 ? '?' : '&') + new URLSearchParams(params).toString();
+      const res = await withTimeout(function(signal) { return fetch(url, { signal: signal, cache: 'no-store' }); }, ms || 15000);
+      return res.json();
+    }
+    async function apiPost(body, ms) {
+      // text/plain keeps this a "simple" request, so the browser needs no CORS pre-check
+      const res = await withTimeout(function(signal) {
+        return fetch(API_URL, { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'text/plain;charset=utf-8' }, signal: signal });
+      }, ms || 40000);
+      return res.json();
+    }
+
+    // Warn when opened inside another app's built-in browser (camera/location often fail there)
+    (function() {
+      const ua = navigator.userAgent;
+      const inApp = /FBAN|FBAV|Instagram|Line\/|Snapchat|Twitter|; wv\)|\bwv\b/i.test(ua) ||
+                    (/iPhone|iPad|iPod/i.test(ua) && !/Safari/i.test(ua));
+      if (inApp) $('inAppBanner').style.display = 'block';
+    })();
+
+    // ---------- form state ----------
+    function codeValid() { return !cfg.requireCode || /^\d{4}$/.test($('codeInput').value.trim()); }
+    function photoValid() { return !cfg.requirePhoto || !!photoDataUrl; }
+
+    function updateButtonState() {
+      const divOk = $('divisionSelect').value !== '';
+      const rollOk = $('rollSelect').value !== '';
+      $('dotDiv').classList.toggle('done', divOk);
+      $('dotRoll').classList.toggle('done', rollOk);
+      $('dotCode').classList.toggle('done', codeValid());
+      $('dotPhoto').classList.toggle('done', !!photoDataUrl);
+      if (!formLocked) $('submitBtn').disabled = !(divOk && rollOk && codeValid() && photoValid());
+    }
+
+    let formLocked = false;
+    function setFormLocked(locked) {
+      formLocked = locked;
+      ['divisionSelect', 'rollSelect', 'codeInput', 'photoInput', 'openCameraBtn', 'captureBtn', 'retakeBtn'].forEach(function(id) {
+        $(id).disabled = locked;
+      });
+      if (locked) $('submitBtn').disabled = true; else updateButtonState();
+    }
+
+    // ---------- class list (cached on the phone, so it also works with no internet) ----------
+    function applyConfig(r) {
+      if (r.config) cfg = r.config;
+      const sel = $('divisionSelect');
+      const current = sel.value;
+      sel.innerHTML = '<option value="">-- Select --</option>';
+      (r.divisions || []).forEach(function(d) {
+        const opt = document.createElement('option');
+        opt.value = d;
+        opt.textContent = 'Division ' + d;
+        sel.appendChild(opt);
+      });
+      sel.value = current;
+      $('codeWrap').style.display = cfg.requireCode ? 'block' : 'none';
+      $('photoLabel').textContent = cfg.requirePhoto ? 'Live Photo (camera only)' : 'Live Photo (optional)';
+      updateButtonState();
+    }
+
+    async function loadConfig() {
+      if (API_URL.indexOf('PASTE_YOUR') !== -1) {
+        showMsg('Setup not finished: put your Apps Script /exec URL in API_URL inside index.html.', 'error');
+        return;
+      }
+      const cached = lsGet(KEY_CFG, null);
+      if (cached) applyConfig(cached);
+      try {
+        const r = await apiGet({ api: 'config' });
+        if (r && r.ok) { lsSet(KEY_CFG, r); applyConfig(r); }
+      } catch (e) {
+        if (!cached) showMsg('No internet yet. Connect once so the class list can load — after that you can mark attendance even with a weak connection.', 'error');
+      }
+    }
+
+    function fillRoll(roster) {
+      const sel = $('rollSelect');
+      const current = sel.value;
+      sel.innerHTML = '<option value="">-- Select Roll Number --</option>';
+      roster.forEach(function(r) {
+        const opt = document.createElement('option');
+        opt.value = r.rollNo;
+        opt.textContent = r.rollNo + ' - ' + r.name;
+        sel.appendChild(opt);
+      });
+      sel.value = current;
+      sel.disabled = formLocked;
+      updateButtonState();
+    }
+
+    $('divisionSelect').addEventListener('change', async function() {
+      const division = this.value;
+      const rollSel = $('rollSelect');
+      if (!division) {
+        rollSel.innerHTML = '<option value="">-- Select Division first --</option>';
+        rollSel.disabled = true;
+        updateButtonState();
+        return;
+      }
+      const key = 'att_roster_' + division;
+      const cached = lsGet(key, null);
+      if (cached) {
+        fillRoll(cached);
+      } else {
+        rollSel.innerHTML = '<option value="">Loading...</option>';
+        rollSel.disabled = true;
+      }
+      try {
+        const r = await apiGet({ api: 'roster', division: division });
+        if (r && r.ok && $('divisionSelect').value === division) { lsSet(key, r.roster); fillRoll(r.roster); }
+      } catch (e) {
+        if (!cached) rollSel.innerHTML = '<option value="">Could not load — check internet, then choose Division again</option>';
+      }
+    });
+
+    $('rollSelect').addEventListener('change', updateButtonState);
+    $('codeInput').addEventListener('input', function() {
+      this.value = this.value.replace(/\D/g, '').slice(0, 4);
+      updateButtonState();
+    });
+
+    // ---------- live photo (kept tiny: ~20 KB) ----------
+    function approxBytes(dataUrl) {
+      return Math.floor((dataUrl.length - dataUrl.indexOf(',') - 1) * 3 / 4);
+    }
+    function loadImage(url) {
+      return new Promise(function(resolve, reject) {
+        const img = new Image();
+        img.onload = function() { resolve(img); };
+        img.onerror = reject;
+        img.src = url;
+      });
+    }
+    function encodeSmall(source, sw, sh) {
+      const MAX_SIDE = 320;
+      const TARGET_BYTES = 20 * 1024;
+      const k = Math.min(1, MAX_SIDE / Math.max(sw, sh));
+      const w = Math.max(80, Math.round(sw * k));
+      const h = Math.max(80, Math.round(sh * k));
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      let scale = 1, quality = 0.6, out = '';
+      for (let i = 0; i < 10; i++) {
+        canvas.width = Math.max(80, Math.round(w * scale));
+        canvas.height = Math.max(80, Math.round(h * scale));
+        ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+        out = canvas.toDataURL('image/jpeg', quality);
+        if (approxBytes(out) <= TARGET_BYTES) break;
+        if (quality > 0.35) quality -= 0.1; else scale *= 0.8;
+      }
+      return out;
+    }
+    async function compressFile(file) {
+      let src, sw, sh, objectUrl = null;
+      try {
+        src = await createImageBitmap(file, { resizeWidth: 640, resizeQuality: 'medium' });
+        sw = src.width; sh = src.height;
+      } catch (e) {
+        objectUrl = URL.createObjectURL(file);
+        src = await loadImage(objectUrl);
+        sw = src.naturalWidth || src.width; sh = src.naturalHeight || src.height;
+      }
+      const out = encodeSmall(src, sw, sh);
+      if (src.close) src.close();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      return out;
+    }
+
+    function stopCamera() {
+      if (cameraStream) { cameraStream.getTracks().forEach(function(tr) { tr.stop(); }); cameraStream = null; }
+      $('cameraVideo').style.display = 'none';
+    }
+    window.addEventListener('pagehide', stopCamera);
+
+    function showFallback(reason) {
+      $('openCameraBtn').style.display = 'none';
+      $('captureBtn').style.display = 'none';
+      $('fallbackBox').style.display = 'block';
+      $('photoInfo').textContent = 'The in-page camera could not start' + (reason ? ' (' + reason + ')' : '') +
+        '. Tap the box below — it opens your phone camera; take the photo right now.';
+    }
+
+    async function openCamera() {
+      photoDataUrl = null;
+      $('preview').style.display = 'none';
+      $('retakeBtn').style.display = 'none';
+      updateButtonState();
+      $('photoInfo').textContent = 'Opening camera...';
+      let timedOut = false;
+      try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw { name: 'Unsupported' };
+        const gum = navigator.mediaDevices.getUserMedia({
+          video: { facingMode: CAMERA_FACING, width: { ideal: 640 }, height: { ideal: 480 } }, audio: false
+        });
+        gum.then(function(s) { if (timedOut) s.getTracks().forEach(function(tr) { tr.stop(); }); }, function() {});
+        const timeout = new Promise(function(_, reject) { setTimeout(function() { timedOut = true; reject({ name: 'Timeout' }); }, 8000); });
+        cameraStream = await Promise.race([gum, timeout]);
+        const video = $('cameraVideo');
+        video.srcObject = cameraStream;
+        video.style.display = 'block';
+        try { await video.play(); } catch (e) { /* autoplay attribute handles it */ }
+        $('openCameraBtn').style.display = 'none';
+        $('captureBtn').style.display = 'block';
+        $('photoInfo').textContent = 'Camera is live — tap "Capture Photo".';
+      } catch (err) {
+        stopCamera();
+        showFallback(err && err.name ? err.name : '');
+      }
+    }
+    $('openCameraBtn').addEventListener('click', openCamera);
+    $('retakeBtn').addEventListener('click', openCamera);
+
+    $('captureBtn').addEventListener('click', function() {
+      const video = $('cameraVideo');
+      if (!cameraStream || !video.videoWidth) { $('photoInfo').textContent = 'Camera is still starting — wait a second and tap again.'; return; }
+      photoDataUrl = encodeSmall(video, video.videoWidth, video.videoHeight);
+      $('preview').src = photoDataUrl;
+      $('preview').style.display = 'block';
+      stopCamera();
+      $('captureBtn').style.display = 'none';
+      $('retakeBtn').style.display = 'block';
+      $('photoInfo').textContent = 'Live photo ready — ' + Math.max(1, Math.round(approxBytes(photoDataUrl) / 1024)) + ' KB';
+      updateButtonState();
+    });
+
+    // Fallback path (phone camera app via the file box) — old photos are rejected
+    $('photoInput').addEventListener('change', async function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      photoDataUrl = null;
+      $('preview').style.display = 'none';
+      updateButtonState();
+      const ageSec = (Date.now() - file.lastModified) / 1000;
+      if (file.lastModified && ageSec > MAX_PHOTO_AGE_SECONDS) {
+        $('photoInfo').textContent = 'This photo is old (taken ' + Math.max(1, Math.round(ageSec / 60)) + ' min ago). Please take a fresh photo with the camera right now.';
+        this.value = '';
+        return;
+      }
+      $('photoInfo').textContent = 'Preparing photo...';
+      try {
+        photoDataUrl = await compressFile(file);
+        $('preview').src = photoDataUrl;
+        $('preview').style.display = 'block';
+        $('photoInfo').textContent = 'Photo ready — ' + Math.max(1, Math.round(approxBytes(photoDataUrl) / 1024)) + ' KB';
+      } catch (err) {
+        photoDataUrl = null;
+        $('photoInfo').textContent = 'Could not read this photo. Please take it again.';
+      }
+      updateButtonState();
+    });
+
+    // ---------- location: waits a little for a real GPS fix instead of grabbing the first (often
+    // network-based, less accurate) reading. Watches for up to 15s and keeps the best (lowest
+    // reported accuracy) fix seen, exiting early if a good one (<=20m) arrives sooner. ----------
+    function getLocation() {
+      const MAX_WAIT_MS = 15000;
+      const GOOD_ENOUGH_ACCURACY = 20;
+      return new Promise(function(resolve, reject) {
+        if (!navigator.geolocation) { reject(new Error('Location not supported')); return; }
+        let best = null, watchId = null;
+        function finish() {
+          if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+          if (best) resolve(best); else reject(new Error('Could not get a location fix.'));
+        }
+        const timeoutId = setTimeout(finish, MAX_WAIT_MS);
+        watchId = navigator.geolocation.watchPosition(
+          function(pos) {
+            const reading = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy };
+            if (!best || reading.accuracy < best.accuracy) best = reading;
+            if (reading.accuracy <= GOOD_ENOUGH_ACCURACY) { clearTimeout(timeoutId); finish(); }
+          },
+          function() { clearTimeout(timeoutId); finish(); },
+          { enableHighAccuracy: true, timeout: MAX_WAIT_MS, maximumAge: 0 }
+        );
+      });
+    }
+
+    // ---------- submit: a real network round trip is required. Nothing is marked unless the
+    // server actually confirms it — no offline saving, no silent queueing. ----------
+    async function submitNow(item, btn) {
+      btn.textContent = 'Submitting...';
+      const MAX_TRIES = 3;   // quick automatic retries only for a momentarily busy server, not for being offline
+      for (let attempt = 1; attempt <= MAX_TRIES; attempt++) {
+        let res = null, networkFailed = false;
+        try {
+          res = await apiPost({
+            action: 'mark', division: item.division, rollNo: item.rollNo, code: item.code,
+            lat: item.lat, lng: item.lng, accuracy: item.accuracy, photo: item.photo, capturedAt: item.capturedAt
+          });
+        } catch (e) { networkFailed = true; }
+
+        if (res && res.ok) return { ok: true, message: res.message };
+        if (res && !res.retry) return { ok: false, message: res.message || 'Could not mark attendance.' };
+
+        if (attempt < MAX_TRIES) {
+          btn.textContent = networkFailed ? 'No internet — retrying...' : 'Server busy — retrying...';
+          await new Promise(r => setTimeout(r, 1500 * attempt));
+          continue;
+        }
+        return networkFailed
+          ? { ok: false, message: 'No internet connection. Connect to the internet and tap "Mark Attendance" again — nothing has been marked yet.' }
+          : { ok: false, message: (res && res.message) || 'The server is busy. Please try again in a moment.' };
+      }
+    }
+
+    $('submitBtn').addEventListener('click', async function() {
+      const division = $('divisionSelect').value;
+      const rollNo = $('rollSelect').value;
+      const code = $('codeInput').value.trim();
+      if (!division || !rollNo || !codeValid() || !photoValid()) return;
+
+      setFormLocked(true);
+      $('submitBtn').textContent = 'Getting accurate location (up to 15s)...';
+      showMsg('', 'info');
+
+      let loc = { lat: null, lng: null, accuracy: null };
+      try {
+        loc = await getLocation();
+      } catch (e) {
+        if (cfg.blockIfOutside) {
+          showMsg('Could not get your location. Open this link in Chrome (⋮ → Open in Chrome if it opened inside another app), turn ON phone Location, allow it for this page, and try again.', 'error');
+          $('submitBtn').textContent = 'Mark Attendance';
+          setFormLocked(false);
+          return;
+        }
+      }
+
+      const item = {
+        division: division, rollNo: rollNo, code: code,
+        lat: loc.lat, lng: loc.lng, accuracy: loc.accuracy,
+        photo: photoDataUrl, capturedAt: Date.now()
+      };
+      const result = await submitNow(item, $('submitBtn'));
+      if (result.ok) {
+        showMsg(result.message, 'ok');
+        $('submitBtn').textContent = 'Done';
+        setFormLocked(true);
+        $('submitBtn').disabled = true;
+      } else {
+        showMsg(result.message, 'error');
+        $('submitBtn').textContent = 'Mark Attendance';
+        setFormLocked(false);
+      }
+    });
+
+    // ---------- start ----------
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js').catch(function() {});   // lets the page itself open with no internet (class list only — marking still needs live internet)
+    }
+    loadConfig();
+  </script>
+</body>
+</html>
