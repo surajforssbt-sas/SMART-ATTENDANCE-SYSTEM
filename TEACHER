@@ -1,1 +1,586 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Attendance - Teacher Panel</title>
+<style>
+  :root {
+    --primary: #2563eb; --primary-dark: #1d4ed8; --success: #16a34a; --danger: #dc2626;
+    --bg: #f8fafc; --card: #ffffff; --text: #1e293b; --muted: #64748b; --border: #e2e8f0;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 16px; max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 8px 0 4px; }
+  h2 { font-size: 16px; margin: 0 0 12px; }
+  .subtitle { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; margin-top: 14px; }
+  label:first-child { margin-top: 0; }
+  select, input[type="text"], input[type="password"], input[type="date"], textarea {
+    width: 100%; padding: 11px; border: 1px solid var(--border); border-radius: 8px; font-size: 15px; background: #fff; font-family: inherit;
+  }
+  textarea { min-height: 70px; resize: vertical; }
+  button { padding: 12px 16px; border: none; border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer; background: var(--primary); color: #fff; }
+  button.block { width: 100%; padding: 14px; font-size: 16px; margin-top: 16px; }
+  button.secondary { background: #64748b; }
+  button.danger { background: var(--danger); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button:active:not(:disabled) { filter: brightness(0.92); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .row > * { flex: 1; min-width: 120px; }
+  .type-row button { flex: 1; background: #fff; color: var(--text); border: 1px solid var(--border); }
+  .type-row button.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .msg { font-size: 14px; margin-top: 14px; padding: 12px; border-radius: 10px; font-weight: 600; }
+  .msg-error { background: #fee2e2; color: var(--danger); }
+  .msg-ok { background: #dcfce7; color: var(--success); }
+  .msg-info { background: #dbeafe; color: var(--primary-dark); }
+  .small { font-size: 12px; color: var(--muted); }
+  .session-card { background: #f1f5f9; border-radius: 10px; padding: 12px; margin-top: 10px; }
+  .session-code { font-size: 30px; font-weight: 800; letter-spacing: 6px; color: var(--primary-dark); }
+  .tabs { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+  .tab-btn { background: #fff; color: var(--muted); border: 1px solid var(--border); padding: 8px 14px; border-radius: 20px; font-size: 13px; }
+  .tab-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
+  th { background: #f1f5f9; position: sticky; top: 0; }
+  .table-wrap { overflow-x: auto; margin-top: 10px; max-height: 400px; overflow-y: auto; }
+  .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  .badge { background: #fef3c7; color: #92400e; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px; margin-left: 6px; }
+  a.link { color: var(--primary); }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<div id="loginView" class="card">
+  <h1>Teacher Login</h1>
+  <label for="loginUser">Username</label>
+  <input type="text" id="loginUser" autocomplete="username">
+  <label for="loginPass">Password</label>
+  <input type="password" id="loginPass" autocomplete="current-password">
+  <button class="block" id="loginBtn">Log In</button>
+  <div id="loginMsg"></div>
+</div>
+
+<div id="mainView" class="hidden">
+  <div class="topbar">
+    <h1>Attendance <span id="meName"></span><span id="adminBadge" class="badge hidden">ADMIN</span></h1>
+    <button class="secondary" id="logoutBtn">Logout</button>
+  </div>
+  <div class="subtitle">Start the session from inside the college. After starting, a 4-digit Session Code appears — tell it to your students.</div>
+
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="session">Session</button>
+    <button class="tab-btn" data-tab="report">Report</button>
+    <button class="tab-btn" data-tab="manual">Manual Attendance</button>
+    <button class="tab-btn hidden" id="adminTabBtn" data-tab="admin">Admin</button>
+  </div>
+
+  <div id="tab-session" class="tab-panel">
+    <div class="card">
+      <h2>Start Session</h2>
+      <label for="divisionSelect">Division</label>
+      <select id="divisionSelect"><option value="">-- Select --</option></select>
+
+      <label>Session Type</label>
+      <div class="row type-row">
+        <button type="button" data-type="LECTURE">Lecture</button>
+        <button type="button" data-type="PRACTICAL">Practical</button>
+      </div>
+
+      <div id="modeWrap" class="hidden">
+        <label>Mode</label>
+        <div class="row type-row">
+          <button type="button" data-mode="REGULAR" class="active">Regular</button>
+          <button type="button" data-mode="ADJUSTED">Adjusted</button>
+        </div>
+      </div>
+
+      <div id="batchWrap" class="hidden">
+        <label for="batchSelect">Batch</label>
+        <select id="batchSelect"><option value="">-- Select Batch --</option></select>
+      </div>
+
+      <label for="subjectSelect">Subject</label>
+      <select id="subjectSelect" disabled><option value="">-- Select Division first --</option></select>
+
+      <button class="block" id="startBtn" disabled>Start Session</button>
+      <div id="startMsg"></div>
+    </div>
+
+    <div class="card">
+      <h2>Active Sessions</h2>
+      <div class="small">Refreshes automatically every 5 seconds.</div>
+      <div id="activeMsg"></div>
+      <div id="activeList"></div>
+    </div>
+  </div>
+
+  <div id="tab-report" class="tab-panel hidden">
+    <div class="card">
+      <h2>Generate Report</h2>
+      <label for="repDivision">Division</label>
+      <select id="repDivision"><option value="">-- Select --</option></select>
+      <label for="repSubject">Subject</label>
+      <select id="repSubject" disabled><option value="">-- Select Division first --</option></select>
+      <label for="repBatch">Batch (optional — blank means whole Division / Lectures)</label>
+      <select id="repBatch"><option value="">-- Whole Division --</option></select>
+      <label for="repRange">Range</label>
+      <select id="repRange">
+        <option value="all">All time</option>
+        <option value="month">This month</option>
+        <option value="week">This week</option>
+      </select>
+      <button class="block" id="reportBtn">Generate Report</button>
+      <div id="reportMsg"></div>
+      <div id="reportTableWrap" class="table-wrap"></div>
+    </div>
+  </div>
+
+  <div id="tab-manual" class="tab-panel hidden">
+    <div class="card">
+      <h2>Manual Attendance (missed / past lecture)</h2>
+      <div class="small">Paste roll numbers of PRESENT students; the rest are marked absent automatically.</div>
+      <label for="manDivision">Division</label>
+      <select id="manDivision"><option value="">-- Select --</option></select>
+      <label for="manSubject">Subject</label>
+      <select id="manSubject" disabled><option value="">-- Select Division first --</option></select>
+      <div class="row">
+        <div>
+          <label>Session Type</label>
+          <div class="row type-row" id="manTypeRow">
+            <button type="button" data-mantype="LECTURE" class="active">Lecture</button>
+            <button type="button" data-mantype="PRACTICAL">Practical</button>
+          </div>
+        </div>
+        <div>
+          <label>Mode</label>
+          <div class="row type-row" id="manModeRow">
+            <button type="button" data-manmode="REGULAR" class="active">Regular</button>
+            <button type="button" data-manmode="ADJUSTED">Adjusted</button>
+          </div>
+        </div>
+      </div>
+      <div id="manBatchWrap" class="hidden">
+        <label for="manBatch">Batch</label>
+        <select id="manBatch"><option value="">-- Select Batch --</option></select>
+      </div>
+      <label for="manDate">Date</label>
+      <input type="date" id="manDate">
+      <label for="manRolls">Roll Numbers of PRESENT students (comma / space / newline separated)</label>
+      <textarea id="manRolls" placeholder="e.g. 1, 2, 3, 5, 7, 8"></textarea>
+      <button class="block" id="manBtn">Mark Attendance</button>
+      <div id="manMsg"></div>
+    </div>
+  </div>
+
+  <div id="tab-admin" class="tab-panel hidden">
+    <div class="card">
+      <h2>Add Teacher</h2>
+      <label for="newUser">Username</label>
+      <input type="text" id="newUser">
+      <label for="newPass">Password</label>
+      <input type="text" id="newPass">
+      <label for="newName">Full Name</label>
+      <input type="text" id="newName">
+      <label><input type="checkbox" id="newIsAdmin" style="width:auto; display:inline-block;"> Make this account an Admin</label>
+      <button class="block" id="addTeacherBtn">Add Teacher</button>
+      <div id="addTeacherMsg"></div>
+    </div>
+    <div class="card">
+      <h2>All Teacher Accounts</h2>
+      <div id="teacherListMsg"></div>
+      <div id="teacherList"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ====== SET THIS ONCE: your Apps Script Web App URL (the one ending in /exec) ======
+  const API_URL = "https://script.google.com/macros/s/AKfycby0e7WHl2DiqxF1y2nmkcys0qwkFkFdFrket0GwbxSlWu39agWrnmjy1BB1Nq6IXzjMkQ/exec";
+  // ===================================================================================
+  const KEY_SESSION = 'teacher_session_v1';
+  const $ = id => document.getElementById(id);
+  let me = null;   // { token, name, isAdmin }
+
+  function lsGet(k, f) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : f; } catch (e) { return f; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  function lsDel(k) { try { localStorage.removeItem(k); } catch (e) {} }
+  function msg(id, text, type) { const el = $(id); el.className = text ? 'msg msg-' + type : ''; el.textContent = text; }
+  function withTimeout(factory, ms) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), ms);
+    return factory(ctrl.signal).finally(() => clearTimeout(t));
+  }
+  async function api(action, payload, ms) {
+    const body = Object.assign({ action: action }, me ? { token: me.token } : {}, payload || {});
+    const res = await withTimeout(signal => fetch(API_URL, {
+      method: 'POST', body: JSON.stringify(body),
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, signal: signal
+    }), ms || 30000);
+    return res.json();
+  }
+
+  // ---------- Login ----------
+  async function doLogin() {
+    const username = $('loginUser').value.trim();
+    const password = $('loginPass').value;
+    if (!username || !password) return;
+    $('loginBtn').disabled = true; $('loginBtn').textContent = 'Logging in...';
+    msg('loginMsg', '', '');
+    try {
+      const r = await api('login', { username, password });
+      if (r.ok) {
+        me = { token: r.token, name: r.name, isAdmin: !!r.isAdmin };
+        lsSet(KEY_SESSION, me);
+        enterApp();
+      } else {
+        msg('loginMsg', r.message || 'Login failed.', 'error');
+      }
+    } catch (e) {
+      msg('loginMsg', 'Could not reach the server. Check your internet and the API_URL setup, then try again.', 'error');
+    }
+    $('loginBtn').disabled = false; $('loginBtn').textContent = 'Log In';
+  }
+  $('loginBtn').addEventListener('click', doLogin);
+  $('loginPass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+
+  $('logoutBtn').addEventListener('click', function() {
+    lsDel(KEY_SESSION);
+    me = null;
+    clearInterval(activePoll);
+    $('mainView').classList.add('hidden');
+    $('loginView').classList.remove('hidden');
+    $('loginPass').value = '';
+  });
+
+  function enterApp() {
+    if (API_URL.indexOf('PASTE_YOUR') !== -1) {
+      msg('loginMsg', 'Setup not finished: put your Apps Script /exec URL in API_URL inside index.html.', 'error');
+      return;
+    }
+    $('loginView').classList.add('hidden');
+    $('mainView').classList.remove('hidden');
+    $('meName').textContent = '— ' + me.name;
+    $('adminBadge').classList.toggle('hidden', !me.isAdmin);
+    $('adminTabBtn').classList.toggle('hidden', !me.isAdmin);
+    loadDivisionsInto(['divisionSelect', 'repDivision', 'manDivision']);
+    startActivePolling();
+    if (me.isAdmin) loadTeacherList();
+  }
+
+  // ---------- Tabs ----------
+  document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click', function() {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+    this.classList.add('active');
+    $('tab-' + this.dataset.tab).classList.remove('hidden');
+  }));
+
+  // ---------- Divisions / Subjects / Batches (shared dropdown helpers) ----------
+  async function loadDivisionsInto(ids) {
+    try {
+      const r = await api('config', {});
+      (r.divisions || []).forEach(d => {
+        ids.forEach(id => {
+          const opt = document.createElement('option');
+          opt.value = d; opt.textContent = 'Division ' + d;
+          $(id).appendChild(opt.cloneNode(true));
+        });
+      });
+    } catch (e) { /* offline: dropdowns just stay empty until reload */ }
+  }
+
+  async function loadSubjectsInto(division, selectId) {
+    const sel = $(selectId);
+    sel.innerHTML = '<option value="">Loading...</option>';
+    sel.disabled = true;
+    if (!division) { sel.innerHTML = '<option value="">-- Select Division first --</option>'; return; }
+    try {
+      const r = await api('subjects', { division });
+      sel.innerHTML = '<option value="">-- Select Subject --</option>';
+      (r.subjects || []).forEach(s => {
+        const opt = document.createElement('option'); opt.value = s.code; opt.textContent = s.name;
+        opt.dataset.type = s.type;
+        sel.appendChild(opt);
+      });
+      sel.disabled = false;
+    } catch (e) { sel.innerHTML = '<option value="">Could not load — try again</option>'; }
+  }
+
+  async function loadBatchesInto(division, selectId) {
+    const sel = $(selectId);
+    try {
+      const r = await api('batches', { division });
+      const keep = sel.querySelector('option[value=""]');
+      sel.innerHTML = ''; if (keep) sel.appendChild(keep);
+      (r.batches || []).forEach(b => {
+        const opt = document.createElement('option'); opt.value = b; opt.textContent = 'Batch ' + b;
+        sel.appendChild(opt);
+      });
+    } catch (e) {}
+  }
+
+  // ================= SESSION TAB =================
+  let currentSessionType = null, currentMode = 'REGULAR', currentSubjectType = null;
+
+  $('divisionSelect').addEventListener('change', function() {
+    loadSubjectsInto(this.value, 'subjectSelect');
+    if (this.value) loadBatchesInto(this.value, 'batchSelect');
+    updateStartButton();
+  });
+  document.querySelectorAll('#tab-session [data-type]').forEach(btn => btn.addEventListener('click', function() {
+    document.querySelectorAll('#tab-session [data-type]').forEach(b => b.classList.remove('active'));
+    this.classList.add('active');
+    currentSessionType = this.dataset.type;
+    $('modeWrap').classList.toggle('hidden', currentSessionType !== 'LECTURE');
+    $('batchWrap').classList.toggle('hidden', currentSessionType !== 'PRACTICAL');
+    updateStartButton();
+  }));
+  document.querySelectorAll('#modeWrap [data-mode]').forEach(btn => btn.addEventListener('click', function() {
+    document.querySelectorAll('#modeWrap [data-mode]').forEach(b => b.classList.remove('active'));
+    this.classList.add('active');
+    currentMode = this.dataset.mode;
+  }));
+  $('subjectSelect').addEventListener('change', function() {
+    const opt = this.selectedOptions[0];
+    currentSubjectType = opt ? opt.dataset.type : null;
+    updateStartButton();
+  });
+  $('batchSelect').addEventListener('change', updateStartButton);
+
+  function updateStartButton() {
+    const division = $('divisionSelect').value;
+    const subject = $('subjectSelect').value;
+    const batch = $('batchSelect').value;
+    let ready = !!division && !!subject && !!currentSessionType;
+    if (currentSessionType === 'PRACTICAL') ready = ready && !!batch;
+    $('startBtn').disabled = !ready;
+  }
+
+  function getApproxLocation() {
+    function once(hi, timeoutMs, maxAgeMs) {
+      return new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(
+          pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+          reject, { enableHighAccuracy: hi, timeout: timeoutMs, maximumAge: maxAgeMs });
+      });
+    }
+    if (!navigator.geolocation) return Promise.resolve({ lat: null, lng: null });
+    return once(true, 8000, 0).catch(() => once(false, 8000, 60000)).catch(() => ({ lat: null, lng: null }));
+  }
+
+  $('startBtn').addEventListener('click', async function() {
+    const btn = this;
+    btn.disabled = true; btn.textContent = 'Getting location...';
+    msg('startMsg', '', '');
+    const division = $('divisionSelect').value;
+    const subject = $('subjectSelect').value;
+    const batch = $('batchSelect').value;
+    const loc = await getApproxLocation();
+    btn.textContent = 'Starting session...';
+    try {
+      const r = await api('startSession', { division, subject, sessionType: currentSessionType, batch, mode: currentMode, lat: loc.lat, lng: loc.lng });
+      if (r.ok) {
+        const scope = batch ? 'Batch ' + batch + ' (Practical, ' + (currentMode === 'ADJUSTED' ? 'Adjusted' : 'Regular') + ')' : ('Lecture (' + (currentMode === 'ADJUSTED' ? 'Adjusted' : 'Regular') + ')');
+        msg('startMsg', '', '');
+        $('startMsg').innerHTML = '<div class="msg msg-ok">Session started — ' + r.subjectName + ', Division ' + r.division + ', ' + scope +
+          '<div class="session-card">Session Code<br><span class="session-code">' + r.sessionCode + '</span></div>Tell this code to your students and share the Student Link.</div>';
+        refreshActive();
+      } else {
+        msg('startMsg', r.message || 'Could not start session.', 'error');
+      }
+    } catch (e) {
+      msg('startMsg', 'Could not reach the server. Check your internet and try again.', 'error');
+    }
+    btn.disabled = false; btn.textContent = 'Start Session'; updateStartButton();
+  });
+
+  // ---------- Active Sessions ----------
+  let activePoll = null;
+  function startActivePolling() {
+    refreshActive();
+    clearInterval(activePoll);
+    activePoll = setInterval(refreshActive, 5000);
+  }
+  async function refreshActive() {
+    try {
+      const r = await api('activeSessions', {});
+      msg('activeMsg', '', '');
+      renderActive(r.sessions || []);
+      if (r.error) msg('activeMsg', 'Server note: ' + r.error, 'error');
+    } catch (e) {
+      msg('activeMsg', 'Could not refresh (offline?) — will try again.', 'info');
+    }
+  }
+  function renderActive(sessions) {
+    const el = $('activeList');
+    if (!sessions.length) { el.innerHTML = '<div class="small" style="margin-top:8px;">No active sessions.</div>'; return; }
+    el.innerHTML = sessions.map(s => {
+      const scope = s.batch ? 'Batch ' + s.batch + ' (Practical, ' + (s.lectureMode === 'ADJUSTED' ? 'Adjusted' : 'Regular') + ')' : ('Lecture (' + (s.lectureMode === 'ADJUSTED' ? 'Adjusted' : 'Regular') + ')');
+      const byline = s.startedBy && me.isAdmin ? '<div class="small">Started by: ' + s.startedBy + '</div>' : '';
+      return '<div class="session-card">' +
+        '<b>' + s.subjectName + '</b> — Division ' + s.division + '<div class="small">' + scope + '</div>' + byline +
+        '<div style="margin-top:6px;">Session Code: <span style="font-size:24px; font-weight:800; letter-spacing:4px; color:#1565c0;">' + s.sessionCode + '</span></div>' +
+        '<div class="small" style="margin-top:4px;">Present: ' + s.count + '</div>' +
+        '<div class="row" style="margin-top:8px;">' +
+        '<button type="button" class="secondary" onclick="viewSession(\'' + s.sessionId + '\')">View List</button>' +
+        '<button type="button" class="danger" onclick="endSessionNow(\'' + s.sessionId + '\')">End</button>' +
+        '</div></div>';
+    }).join('');
+  }
+  window.endSessionNow = async function(sessionId) {
+    if (!confirm('End this session? Students will no longer be able to mark attendance for it.')) return;
+    try {
+      const r = await api('endSession', { sessionId });
+      if (!r.ok) alert(r.message || 'Could not end session.');
+      refreshActive();
+    } catch (e) { alert('Could not reach the server.'); }
+  };
+  window.viewSession = async function(sessionId) {
+    try {
+      const r = await api('sessionStatus', { sessionId });
+      if (!r || r.notFound) { alert('Session not found.'); return; }
+      const rows = (r.names || []).map(n => '<tr><td>' + n.rollNo + '</td><td>' + n.name + '</td><td>' + Math.round(n.distance || 0) + ' m</td>' +
+        (n.photoUrl ? '<td><a class="link" href="' + n.photoUrl + '" target="_blank">Photo</a></td>' : '<td>-</td>') + '</tr>').join('');
+      const w = window.open('', '_blank');
+      w.document.write('<h3>' + r.sessionLabel + '</h3><table border="1" cellpadding="6" style="border-collapse:collapse;"><tr><th>Roll No</th><th>Name</th><th>Distance</th><th>Photo</th></tr>' + rows + '</table>');
+    } catch (e) { alert('Could not reach the server.'); }
+  };
+
+  // ================= REPORT TAB =================
+  $('repDivision').addEventListener('change', function() {
+    loadSubjectsInto(this.value, 'repSubject');
+    if (this.value) loadBatchesInto(this.value, 'repBatch');
+  });
+  $('reportBtn').addEventListener('click', async function() {
+    const btn = this;
+    const division = $('repDivision').value, subject = $('repSubject').value, batch = $('repBatch').value, rangeType = $('repRange').value;
+    if (!division || !subject) { msg('reportMsg', 'Select a Division and Subject first.', 'error'); return; }
+    btn.disabled = true; btn.textContent = 'Generating...';
+    msg('reportMsg', '', ''); $('reportTableWrap').innerHTML = '';
+    try {
+      const r = await api('generateReport', { division, subject, batch, rangeType });
+      if (r.ok) {
+        msg('reportMsg', r.subjectName + ', ' + r.studentCount + ' students x ' + r.sessionCount + ' sessions (' + r.regularCount + ' Regular, ' + r.adjustedCount + ' Adjusted). Also saved to the "Report" tab.', 'ok');
+        renderReportTable(r);
+      } else {
+        msg('reportMsg', r.message || 'Could not generate report.', 'error');
+      }
+    } catch (e) { msg('reportMsg', 'Could not reach the server.', 'error'); }
+    btn.disabled = false; btn.textContent = 'Generate Report';
+  });
+  function renderReportTable(res) {
+    const wrap = $('reportTableWrap');
+    if (!res.rows || !res.rows.length) { wrap.innerHTML = '<div class="small">No students found for this scope.</div>'; return; }
+    let html = '<table><thead><tr><th style="position:sticky; left:0; background:#1565c0; color:#fff;">Roll No</th><th style="position:sticky; left:50px; background:#1565c0; color:#fff;">Name</th>';
+    res.columns.forEach(c => html += '<th>' + c + '</th>');
+    html += '<th>Present</th><th>Total</th><th>%</th></tr></thead><tbody>';
+    res.rows.forEach(r => {
+      html += '<tr><td style="position:sticky; left:0; background:#fff; font-weight:600;">' + r.rollNo + '</td><td style="position:sticky; left:50px; background:#fff;">' + r.name + '</td>';
+      r.marks.forEach(m => html += '<td style="text-align:center; color:' + (m ? '#2e7d32' : '#c62828') + '; font-weight:700;">' + m + '</td>');
+      html += '<td style="text-align:center;">' + r.present + '</td><td style="text-align:center;">' + r.total + '</td><td style="text-align:center;">' + r.percentage + '%</td></tr>';
+    });
+    html += '</tbody></table>';
+    wrap.innerHTML = html;
+  }
+
+  // ================= MANUAL ATTENDANCE TAB =================
+  let manType = 'LECTURE', manMode = 'REGULAR';
+  $('manDivision').addEventListener('change', function() {
+    loadSubjectsInto(this.value, 'manSubject');
+    if (this.value) loadBatchesInto(this.value, 'manBatch');
+  });
+  document.querySelectorAll('#manTypeRow [data-mantype]').forEach(btn => btn.addEventListener('click', function() {
+    document.querySelectorAll('#manTypeRow [data-mantype]').forEach(b => b.classList.remove('active'));
+    this.classList.add('active'); manType = this.dataset.mantype;
+    $('manBatchWrap').classList.toggle('hidden', manType !== 'PRACTICAL');
+  }));
+  document.querySelectorAll('#manModeRow [data-manmode]').forEach(btn => btn.addEventListener('click', function() {
+    document.querySelectorAll('#manModeRow [data-manmode]').forEach(b => b.classList.remove('active'));
+    this.classList.add('active'); manMode = this.dataset.manmode;
+  }));
+  (function() { $('manDate').value = new Date().toISOString().slice(0, 10); })();
+
+  $('manBtn').addEventListener('click', async function() {
+    const btn = this;
+    const division = $('manDivision').value, subject = $('manSubject').value, batch = $('manBatch').value;
+    const dateStr = $('manDate').value, rollNumbers = $('manRolls').value.trim();
+    if (!division || !subject || !dateStr || !rollNumbers) { msg('manMsg', 'Fill in Division, Subject, Date and Roll Numbers.', 'error'); return; }
+    if (manType === 'PRACTICAL' && !batch) { msg('manMsg', 'Select a Batch for a Practical session.', 'error'); return; }
+    btn.disabled = true; btn.textContent = 'Marking...';
+    try {
+      const r = await api('manualAttendance', { division, subject, sessionType: manType, batch, mode: manMode, dateStr, rollNumbers });
+      if (r.ok) {
+        let text = 'Marked ' + r.markedCount + ' of ' + r.rosterCount + ' students present.';
+        if (r.invalidRolls && r.invalidRolls.length) text += ' Not found: ' + r.invalidRolls.join(', ');
+        msg('manMsg', text, 'ok');
+        $('manRolls').value = '';
+      } else {
+        msg('manMsg', r.message || 'Could not mark attendance.', 'error');
+      }
+    } catch (e) { msg('manMsg', 'Could not reach the server.', 'error'); }
+    btn.disabled = false; btn.textContent = 'Mark Attendance';
+  });
+
+  // ================= ADMIN TAB =================
+  $('addTeacherBtn').addEventListener('click', async function() {
+    const btn = this;
+    const username = $('newUser').value.trim(), password = $('newPass').value, name = $('newName').value.trim(), isAdmin = $('newIsAdmin').checked;
+    if (!username || !password) { msg('addTeacherMsg', 'Username and password are required.', 'error'); return; }
+    btn.disabled = true;
+    try {
+      const r = await api('addTeacher', { username, password, name, isAdmin });
+      if (r.ok) {
+        msg('addTeacherMsg', 'Teacher added.', 'ok');
+        $('newUser').value = ''; $('newPass').value = ''; $('newName').value = ''; $('newIsAdmin').checked = false;
+        loadTeacherList();
+      } else {
+        msg('addTeacherMsg', r.message || 'Could not add teacher.', 'error');
+      }
+    } catch (e) { msg('addTeacherMsg', 'Could not reach the server.', 'error'); }
+    btn.disabled = false;
+  });
+
+  async function loadTeacherList() {
+    msg('teacherListMsg', '', '');
+    try {
+      const r = await api('listTeachers', {});
+      if (!r.ok) { msg('teacherListMsg', r.message || 'Could not load teachers.', 'error'); return; }
+      $('teacherList').innerHTML = r.teachers.map(t =>
+        '<div class="session-card" style="display:flex; justify-content:space-between; align-items:center;">' +
+        '<div><b>' + t.name + '</b> <span class="small">(' + t.username + ')</span>' + (t.isAdmin ? ' <span class="badge">ADMIN</span>' : '') + '</div>' +
+        '<div class="row" style="max-width:220px;">' +
+        '<button type="button" class="secondary" onclick="resetPass(\'' + t.username + '\')">Reset PW</button>' +
+        '<button type="button" class="danger" onclick="removeTeacherNow(\'' + t.username + '\')">Remove</button>' +
+        '</div></div>'
+      ).join('') || '<div class="small">No teacher accounts yet.</div>';
+    } catch (e) { msg('teacherListMsg', 'Could not reach the server.', 'error'); }
+  }
+  window.removeTeacherNow = async function(username) {
+    if (!confirm('Remove ' + username + '? They will no longer be able to log in.')) return;
+    try {
+      const r = await api('removeTeacher', { username });
+      if (!r.ok) alert(r.message || 'Could not remove.');
+      loadTeacherList();
+    } catch (e) { alert('Could not reach the server.'); }
+  };
+  window.resetPass = async function(username) {
+    const newPassword = prompt('New password for ' + username + ':');
+    if (!newPassword) return;
+    try {
+      const r = await api('resetTeacherPassword', { username, newPassword });
+      alert(r.ok ? 'Password updated.' : (r.message || 'Could not update.'));
+    } catch (e) { alert('Could not reach the server.'); }
+  };
+
+  // ---------- Resume a saved login ----------
+  (function() {
+    const saved = lsGet(KEY_SESSION, null);
+    if (saved && saved.token) { me = saved; enterApp(); }
+  })();
+</script>
+</body>
+</html>
 
