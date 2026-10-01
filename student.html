@@ -125,6 +125,19 @@
     const CAMERA_FACING = 'user';        // 'user' = front (selfie) camera, 'environment' = back camera
     const MAX_PHOTO_AGE_SECONDS = 180;   // (file fallback only) the photo must have been taken within the last 3 minutes
     const KEY_CFG = 'att_cfg_v1';
+    const KEY_DEVICE = 'att_device_v1';
+
+    // A persistent per-browser identifier (not a real hardware ID — the web platform doesn't
+    // expose one). Lets a teacher spot when the same browser/phone marked attendance for more
+    // than one roll number, in the "Same Device" report. Clearing browser data resets it.
+    function getDeviceId() {
+      let id = lsGet(KEY_DEVICE, null);
+      if (!id) {
+        id = (crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2)));
+        lsSet(KEY_DEVICE, id);
+      }
+      return id;
+    }
 
     let cfg = { requirePhoto: true, requireCode: true, blockIfOutside: true };
     let photoDataUrl = null;
@@ -440,7 +453,8 @@
         try {
           res = await apiPost({
             action: 'mark', division: item.division, rollNo: item.rollNo, code: item.code,
-            lat: item.lat, lng: item.lng, accuracy: item.accuracy, photo: item.photo, capturedAt: item.capturedAt
+            lat: item.lat, lng: item.lng, accuracy: item.accuracy, photo: item.photo, capturedAt: item.capturedAt,
+            deviceId: getDeviceId()
           });
         } catch (e) { networkFailed = true; }
 
