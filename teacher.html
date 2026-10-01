@@ -50,6 +50,7 @@
   a.link { color: var(--primary); }
   .hidden { display: none !important; }
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
 
@@ -74,6 +75,7 @@
     <button class="tab-btn active" data-tab="session">Session</button>
     <button class="tab-btn" data-tab="report">Report</button>
     <button class="tab-btn" data-tab="manual">Manual Attendance</button>
+    <button class="tab-btn" data-tab="devicecheck">Same Device</button>
     <button class="tab-btn hidden" id="adminTabBtn" data-tab="admin">Admin</button>
   </div>
 
@@ -134,7 +136,42 @@
       </select>
       <button class="block" id="reportBtn">Generate Report</button>
       <div id="reportMsg"></div>
+      <div class="row" id="reportDownloadRow" style="display:none; margin-top:10px;">
+        <button type="button" class="secondary" id="downloadExcelBtn">⬇ Download Excel</button>
+        <button type="button" class="secondary" id="downloadPdfBtn">⬇ Download PDF</button>
+      </div>
+      <div class="small" id="deviceFlagNote" style="display:none; margin-top:8px;">🟧 orange = that mark shared a device with another student — see the "Same Device" tab.</div>
       <div id="reportTableWrap" class="table-wrap"></div>
+    </div>
+
+    <div class="card">
+      <h2>Semester Report (PDF)</h2>
+      <div class="small">Uses the same Division/Subject/Batch selected above, for the full term.</div>
+      <button class="block" id="semesterPdfBtn">Generate Semester PDF</button>
+      <div id="semesterMsg"></div>
+    </div>
+
+    <div class="card">
+      <h2>Attendance Certificates</h2>
+      <label for="certDivision">Division</label>
+      <select id="certDivision"><option value="">-- Select --</option></select>
+      <label for="certRolls">Roll Numbers (comma / space / newline separated)</label>
+      <textarea id="certRolls" placeholder="e.g. 1, 2, 3, 5, 7, 8"></textarea>
+      <button class="block" id="certBtn">Generate Certificates</button>
+      <div id="certMsg"></div>
+      <div id="certList"></div>
+    </div>
+  </div>
+
+  <div id="tab-devicecheck" class="tab-panel hidden">
+    <div class="card">
+      <h2>Same Device — Attendance Review</h2>
+      <div class="small">Shows groups of students whose attendance, in the same session, came from the same phone/browser. This is a signal to review (open both photos and compare), not proof — attendance is never blocked because of it.</div>
+      <label for="devDivision">Division</label>
+      <select id="devDivision"><option value="">-- Select --</option></select>
+      <button class="block" id="devCheckBtn">Check</button>
+      <div id="devMsg"></div>
+      <div id="devList"></div>
     </div>
   </div>
 
@@ -185,6 +222,8 @@
       <label for="newName">Full Name</label>
       <input type="text" id="newName">
       <label><input type="checkbox" id="newIsAdmin" style="width:auto; display:inline-block;"> Make this account an Admin</label>
+      <label for="newDivisions">Assigned Divisions (their teaching load — comma separated, e.g. D, E)</label>
+      <input type="text" id="newDivisions" placeholder="Leave blank = every division">
       <button class="block" id="addTeacherBtn">Add Teacher</button>
       <div id="addTeacherMsg"></div>
     </div>
@@ -265,7 +304,7 @@
     $('meName').textContent = '— ' + me.name;
     $('adminBadge').classList.toggle('hidden', !me.isAdmin);
     $('adminTabBtn').classList.toggle('hidden', !me.isAdmin);
-    loadDivisionsInto(['divisionSelect', 'repDivision', 'manDivision']);
+    loadDivisionsInto(['divisionSelect', 'repDivision', 'manDivision', 'certDivision', 'devDivision']);
     startActivePolling();
     if (me.isAdmin) loadTeacherList();
   }
@@ -281,7 +320,8 @@
   // ---------- Divisions / Subjects / Batches (shared dropdown helpers) ----------
   async function loadDivisionsInto(ids) {
     try {
-      const r = await api('config', {});
+      // Admins see every division; a regular teacher sees only their assigned load (if any was set).
+      const r = await api('myDivisions', {});
       (r.divisions || []).forEach(d => {
         ids.forEach(id => {
           const opt = document.createElement('option');
@@ -334,7 +374,7 @@
     document.querySelectorAll('#tab-session [data-type]').forEach(b => b.classList.remove('active'));
     this.classList.add('active');
     currentSessionType = this.dataset.type;
-    $('modeWrap').classList.toggle('hidden', currentSessionType !== 'LECTURE');
+    $('modeWrap').classList.remove('hidden'); // Regular/Adjusted applies to both Lecture and Practical
     $('batchWrap').classList.toggle('hidden', currentSessionType !== 'PRACTICAL');
     updateStartButton();
   }));
@@ -454,17 +494,22 @@
     loadSubjectsInto(this.value, 'repSubject');
     if (this.value) loadBatchesInto(this.value, 'repBatch');
   });
+  let lastReport = null;   // kept so the Excel/PDF download buttons can rebuild the report without another server call
+
   $('reportBtn').addEventListener('click', async function() {
     const btn = this;
     const division = $('repDivision').value, subject = $('repSubject').value, batch = $('repBatch').value, rangeType = $('repRange').value;
     if (!division || !subject) { msg('reportMsg', 'Select a Division and Subject first.', 'error'); return; }
     btn.disabled = true; btn.textContent = 'Generating...';
-    msg('reportMsg', '', ''); $('reportTableWrap').innerHTML = '';
+    msg('reportMsg', '', ''); $('reportTableWrap').innerHTML = ''; $('reportDownloadRow').style.display = 'none'; $('deviceFlagNote').style.display = 'none';
     try {
       const r = await api('generateReport', { division, subject, batch, rangeType });
       if (r.ok) {
         msg('reportMsg', r.subjectName + ', ' + r.studentCount + ' students x ' + r.sessionCount + ' sessions (' + r.regularCount + ' Regular, ' + r.adjustedCount + ' Adjusted). Also saved to the "Report" tab.', 'ok');
+        lastReport = r;
         renderReportTable(r);
+        $('reportDownloadRow').style.display = 'flex';
+        if (r.rows.some(row => row.flags && row.flags.some(f => f))) $('deviceFlagNote').style.display = 'block';
       } else {
         msg('reportMsg', r.message || 'Could not generate report.', 'error');
       }
@@ -479,12 +524,120 @@
     html += '<th>Present</th><th>Total</th><th>%</th></tr></thead><tbody>';
     res.rows.forEach(r => {
       html += '<tr><td style="position:sticky; left:0; background:#fff; font-weight:600;">' + r.rollNo + '</td><td style="position:sticky; left:50px; background:#fff;">' + r.name + '</td>';
-      r.marks.forEach(m => html += '<td style="text-align:center; color:' + (m ? '#2e7d32' : '#c62828') + '; font-weight:700;">' + m + '</td>');
+      r.marks.forEach((m, i) => {
+        const shared = r.flags && r.flags[i];
+        const bg = shared ? '#fdba74' : 'transparent';
+        html += '<td style="text-align:center; background:' + bg + '; color:' + (m ? '#2e7d32' : '#c62828') + '; font-weight:700;" title="' + (shared ? 'Shared device with another student — check Same Device tab' : '') + '">' + m + '</td>';
+      });
       html += '<td style="text-align:center;">' + r.present + '</td><td style="text-align:center;">' + r.total + '</td><td style="text-align:center;">' + r.percentage + '%</td></tr>';
     });
     html += '</tbody></table>';
     wrap.innerHTML = html;
   }
+
+  // ---------- Excel / PDF download (built from the already-fetched data — no blank columns,
+  // and no copy-paste issues from the on-screen sticky-column table) ----------
+  function reportFileBase() {
+    if (!lastReport) return 'report';
+    return (lastReport.subjectName + '_' + lastReport.division + (lastReport.batch ? '_' + lastReport.batch : '')).replace(/\s+/g, '_');
+  }
+  $('downloadExcelBtn').addEventListener('click', function() {
+    if (!lastReport || typeof XLSX === 'undefined') { alert('Report data or Excel library not ready — try generating the report again.'); return; }
+    const header = ['Roll No', 'Name'].concat(lastReport.columns, ['Present', 'Total', 'Percentage']);
+    const aoa = [header];
+    lastReport.rows.forEach(r => aoa.push([r.rollNo, r.name].concat(r.marks, [r.present, r.total, r.percentage + '%'])));
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Report');
+    XLSX.writeFile(wb, reportFileBase() + '.xlsx');
+  });
+  $('downloadPdfBtn').addEventListener('click', function() {
+    if (!lastReport) return;
+    const header = ['Roll No', 'Name'].concat(lastReport.columns, ['Present', 'Total', '%']);
+    let rowsHtml = lastReport.rows.map(r =>
+      '<tr><td>' + r.rollNo + '</td><td>' + r.name + '</td>' +
+      r.marks.map(m => '<td style="text-align:center;">' + m + '</td>').join('') +
+      '<td style="text-align:center;">' + r.present + '</td><td style="text-align:center;">' + r.total + '</td><td style="text-align:center;">' + r.percentage + '%</td></tr>'
+    ).join('');
+    const w = window.open('', '_blank');
+    w.document.write('<html><head><title>' + reportFileBase() + '</title><style>' +
+      'body{font-family:Arial,sans-serif;padding:16px;} table{border-collapse:collapse; width:100%; font-size:11px;} ' +
+      'th,td{border:1px solid #999; padding:4px 6px; white-space:nowrap;} th{background:#1565c0; color:#fff;}' +
+      '</style></head><body>' +
+      '<h3>' + lastReport.subjectName + ' — Division ' + lastReport.division + (lastReport.batch ? ' — Batch ' + lastReport.batch : '') + '</h3>' +
+      '<table><thead><tr>' + header.map(h => '<th>' + h + '</th>').join('') + '</tr></thead><tbody>' + rowsHtml + '</tbody></table>' +
+      '<script>window.onload=function(){window.print();}<\/script></body></html>');
+    w.document.close();
+  });
+
+  // ---------- Semester PDF ----------
+  $('semesterPdfBtn').addEventListener('click', async function() {
+    const btn = this;
+    const division = $('repDivision').value, subject = $('repSubject').value, batch = $('repBatch').value;
+    if (!division || !subject) { msg('semesterMsg', 'Select a Division and Subject in Generate Report above first.', 'error'); return; }
+    btn.disabled = true; btn.textContent = 'Generating...';
+    msg('semesterMsg', '', '');
+    try {
+      const r = await api('semesterReportPdf', { division, subject, batch });
+      if (r.ok) {
+        msg('semesterMsg', '', '');
+        $('semesterMsg').innerHTML = '<div class="msg msg-ok">Ready — ' + r.studentCount + ' students, ' + r.sessionCount + ' sessions. <a class="link" href="' + r.url + '" target="_blank">Open PDF</a></div>';
+      } else {
+        msg('semesterMsg', r.message || 'Could not generate the semester report.', 'error');
+      }
+    } catch (e) { msg('semesterMsg', 'Could not reach the server.', 'error'); }
+    btn.disabled = false; btn.textContent = 'Generate Semester PDF';
+  });
+
+  // ---------- Certificates ----------
+  $('certBtn').addEventListener('click', async function() {
+    const btn = this;
+    const division = $('certDivision').value, rollNumbers = $('certRolls').value.trim();
+    if (!division || !rollNumbers) { msg('certMsg', 'Select a Division and enter at least one roll number.', 'error'); return; }
+    btn.disabled = true; btn.textContent = 'Generating...';
+    msg('certMsg', '', ''); $('certList').innerHTML = '';
+    try {
+      const r = await api('certificates', { division, rollNumbers });
+      if (r.ok) {
+        msg('certMsg', 'Generated ' + r.results.length + ' certificate(s).', 'ok');
+        $('certList').innerHTML = r.results.map(x =>
+          x.url
+            ? '<div class="session-card">' + x.rollNo + ' — ' + x.name + ' (' + x.percentage + '%) — <a class="link" href="' + x.url + '" target="_blank">Open PDF</a></div>'
+            : '<div class="session-card">' + x.rollNo + ' — <span style="color:var(--danger);">' + x.error + '</span></div>'
+        ).join('');
+      } else {
+        msg('certMsg', r.message || 'Could not generate certificates.', 'error');
+      }
+    } catch (e) { msg('certMsg', 'Could not reach the server.', 'error'); }
+    btn.disabled = false; btn.textContent = 'Generate Certificates';
+  });
+
+  // ================= SAME DEVICE TAB =================
+  $('devCheckBtn').addEventListener('click', async function() {
+    const btn = this;
+    const division = $('devDivision').value;
+    if (!division) { msg('devMsg', 'Select a Division first.', 'error'); return; }
+    btn.disabled = true; btn.textContent = 'Checking...';
+    msg('devMsg', '', ''); $('devList').innerHTML = '';
+    try {
+      const r = await api('sameDeviceReport', { division });
+      if (r.ok) {
+        if (!r.groups.length) {
+          msg('devMsg', 'No shared-device attendance found for Division ' + division + '.', 'ok');
+        } else {
+          msg('devMsg', r.groups.length + ' group(s) found — review the photos before deciding anything.', 'info');
+          $('devList').innerHTML = r.groups.map(g =>
+            '<div class="session-card"><b>' + g.subjectName + '</b> — ' + g.sessionLabel + '<div class="small" style="margin-top:6px;">' +
+            g.students.map(s => s.rollNo + ' (' + s.name + ')' + (s.photoUrl ? ' — <a class="link" href="' + s.photoUrl + '" target="_blank">Photo</a>' : '')).join('<br>') +
+            '</div></div>'
+          ).join('');
+        }
+      } else {
+        msg('devMsg', r.message || 'Could not check.', 'error');
+      }
+    } catch (e) { msg('devMsg', 'Could not reach the server.', 'error'); }
+    btn.disabled = false; btn.textContent = 'Check';
+  });
 
   // ================= MANUAL ATTENDANCE TAB =================
   let manType = 'LECTURE', manMode = 'REGULAR';
@@ -527,14 +680,14 @@
   // ================= ADMIN TAB =================
   $('addTeacherBtn').addEventListener('click', async function() {
     const btn = this;
-    const username = $('newUser').value.trim(), password = $('newPass').value, name = $('newName').value.trim(), isAdmin = $('newIsAdmin').checked;
+    const username = $('newUser').value.trim(), password = $('newPass').value, name = $('newName').value.trim(), isAdmin = $('newIsAdmin').checked, divisions = $('newDivisions').value.trim();
     if (!username || !password) { msg('addTeacherMsg', 'Username and password are required.', 'error'); return; }
     btn.disabled = true;
     try {
-      const r = await api('addTeacher', { username, password, name, isAdmin });
+      const r = await api('addTeacher', { username, password, name, isAdmin, divisions });
       if (r.ok) {
         msg('addTeacherMsg', 'Teacher added.', 'ok');
-        $('newUser').value = ''; $('newPass').value = ''; $('newName').value = ''; $('newIsAdmin').checked = false;
+        $('newUser').value = ''; $('newPass').value = ''; $('newName').value = ''; $('newIsAdmin').checked = false; $('newDivisions').value = '';
         loadTeacherList();
       } else {
         msg('addTeacherMsg', r.message || 'Could not add teacher.', 'error');
@@ -549,12 +702,16 @@
       const r = await api('listTeachers', {});
       if (!r.ok) { msg('teacherListMsg', r.message || 'Could not load teachers.', 'error'); return; }
       $('teacherList').innerHTML = r.teachers.map(t =>
-        '<div class="session-card" style="display:flex; justify-content:space-between; align-items:center;">' +
+        '<div class="session-card">' +
+        '<div style="display:flex; justify-content:space-between; align-items:center;">' +
         '<div><b>' + t.name + '</b> <span class="small">(' + t.username + ')</span>' + (t.isAdmin ? ' <span class="badge">ADMIN</span>' : '') + '</div>' +
         '<div class="row" style="max-width:220px;">' +
+        '<button type="button" class="secondary" onclick="editLoad(\'' + t.username + '\')">Load</button>' +
         '<button type="button" class="secondary" onclick="resetPass(\'' + t.username + '\')">Reset PW</button>' +
         '<button type="button" class="danger" onclick="removeTeacherNow(\'' + t.username + '\')">Remove</button>' +
-        '</div></div>'
+        '</div></div>' +
+        '<div class="small" style="margin-top:6px;">Load: ' + (t.divisions && t.divisions.length ? t.divisions.join(', ') : 'All divisions') + '</div>' +
+        '</div>'
       ).join('') || '<div class="small">No teacher accounts yet.</div>';
     } catch (e) { msg('teacherListMsg', 'Could not reach the server.', 'error'); }
   }
@@ -572,6 +729,15 @@
     try {
       const r = await api('resetTeacherPassword', { username, newPassword });
       alert(r.ok ? 'Password updated.' : (r.message || 'Could not update.'));
+    } catch (e) { alert('Could not reach the server.'); }
+  };
+  window.editLoad = async function(username) {
+    const divisions = prompt('Assigned Divisions for ' + username + ' (comma separated, e.g. D, E — leave blank for every division):');
+    if (divisions === null) return;
+    try {
+      const r = await api('updateTeacherDivisions', { username, divisions });
+      if (!r.ok) alert(r.message || 'Could not update.');
+      loadTeacherList();
     } catch (e) { alert('Could not reach the server.'); }
   };
 
