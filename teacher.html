@@ -287,11 +287,17 @@
 
   $('logoutBtn').addEventListener('click', function() {
     lsDel(KEY_SESSION);
-    me = null;
     clearInterval(activePoll);
-    $('mainView').classList.add('hidden');
-    $('loginView').classList.remove('hidden');
-    $('loginPass').value = '';
+    // A full reload guarantees a completely clean slate — no leftover state from this session
+    // can possibly survive (e.g. another open tab, or any in-memory value), so the login screen
+    // that comes back is always genuinely logged out.
+    window.location.reload();
+  });
+
+  // If logout (or a fresh login) happens in ANOTHER tab of this same browser, this tab follows
+  // suit automatically instead of silently continuing to look logged in with stale data.
+  window.addEventListener('storage', function(e) {
+    if (e.key === KEY_SESSION) window.location.reload();
   });
 
   function enterApp() {
@@ -307,6 +313,27 @@
     loadDivisionsInto(['divisionSelect', 'repDivision', 'manDivision', 'certDivision', 'devDivision']);
     startActivePolling();
     if (me.isAdmin) loadTeacherList();
+    guardBackButton();
+  }
+
+  // Pressing the browser's Back button while logged in asks for confirmation instead of just
+  // leaving — so the panel is never left open/logged-in by an accidental Back press. "OK" logs
+  // the teacher out properly; "Cancel" keeps them right where they were.
+  let backGuardActive = false;
+  function guardBackButton() {
+    if (backGuardActive) return;
+    backGuardActive = true;
+    history.pushState({ attendanceGuard: true }, '', location.href);
+    window.addEventListener('popstate', function onPopState() {
+      if (!me) return;   // already logged out — let Back behave normally
+      if (confirm('Do you want to log out?')) {
+        lsDel(KEY_SESSION);
+        clearInterval(activePoll);
+        window.location.reload();
+      } else {
+        history.pushState({ attendanceGuard: true }, '', location.href);   // stay put, keep guarding
+      }
+    });
   }
 
   // ---------- Tabs ----------
@@ -442,7 +469,7 @@
   function startActivePolling() {
     refreshActive();
     clearInterval(activePoll);
-    activePoll = setInterval(refreshActive, 5000);
+    activePoll = setInterval(refreshActive, 15000);  // was 5s — this was hammering the server on every open tab; present counts don't need to be that instant
   }
   async function refreshActive() {
     try {
