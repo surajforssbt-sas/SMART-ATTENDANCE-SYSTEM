@@ -417,18 +417,22 @@
       updateButtonState();
     });
 
-    // ---------- location: waits a little for a real GPS fix instead of grabbing the first (often
-    // network-based, less accurate) reading. Watches for up to 15s and keeps the best (lowest
-    // reported accuracy) fix seen, exiting early if a good one (<=20m) arrives sooner. ----------
-    function getLocation() {
+    // ---------- location: fetched in the BACKGROUND starting as soon as the page loads, not
+    // when Submit is pressed. It still watches for up to 15s and keeps the best (lowest
+    // reported accuracy) reading seen — but that wait happens silently while the student is
+    // busy picking their Division/Roll/Code and taking their photo, so by the time they tap
+    // Submit the location is normally already sitting there ready, making Submit feel instant.
+    // Location never blocks attendance either way (see BLOCK_IF_OUTSIDE in Code.gs) — it's
+    // purely for the audit trail — so a slow/failed fix is never a reason to wait or retry here.
+    function fetchLocationInBackground() {
       const MAX_WAIT_MS = 15000;
       const GOOD_ENOUGH_ACCURACY = 20;
-      return new Promise(function(resolve, reject) {
-        if (!navigator.geolocation) { reject(new Error('Location not supported')); return; }
+      return new Promise(function(resolve) {
+        if (!navigator.geolocation) { resolve({ lat: null, lng: null, accuracy: null }); return; }
         let best = null, watchId = null;
         function finish() {
           if (watchId !== null) navigator.geolocation.clearWatch(watchId);
-          if (best) resolve(best); else reject(new Error('Could not get a location fix.'));
+          resolve(best || { lat: null, lng: null, accuracy: null });
         }
         const timeoutId = setTimeout(finish, MAX_WAIT_MS);
         watchId = navigator.geolocation.watchPosition(
@@ -440,6 +444,17 @@
           function() { clearTimeout(timeoutId); finish(); },
           { enableHighAccuracy: true, timeout: MAX_WAIT_MS, maximumAge: 0 }
         );
+      });
+    }
+    let locationPromise = fetchLocationInBackground();   // starts immediately on page load
+    function getLocation() {
+      // Submit just awaits whatever's already in flight (usually already finished by now)
+      // instead of starting a fresh 15s search — see fetchLocationInBackground() above.
+      return locationPromise.then(function(loc) {
+        // Came back empty (e.g. permission wasn't granted yet)? Quietly start another attempt
+        // for next time (e.g. a retry after fixing permission) without delaying this submit.
+        if (loc.lat == null) locationPromise = fetchLocationInBackground();
+        return loc;
       });
     }
 
@@ -479,7 +494,7 @@
       if (!division || !rollNo || !codeValid() || !photoValid()) return;
 
       setFormLocked(true);
-      $('submitBtn').textContent = 'Getting accurate location (up to 15s)...';
+      $('submitBtn').textContent = 'Getting location...';
       showMsg('', 'info');
 
       let loc = { lat: null, lng: null, accuracy: null };
