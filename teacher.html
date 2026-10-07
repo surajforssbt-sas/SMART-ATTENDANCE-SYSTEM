@@ -206,8 +206,14 @@
       <label for="manDate">Date</label>
       <input type="date" id="manDate">
       <label for="manRolls">Roll Numbers of PRESENT students (comma / space / newline separated)</label>
+      <div class="small">If a session already ran that day (students marked via the link), this fills in only the ones who are missing — already-marked students are left untouched, no duplicates.</div>
       <textarea id="manRolls" placeholder="e.g. 1, 2, 3, 5, 7, 8"></textarea>
-      <button class="block" id="manBtn">Mark Attendance</button>
+
+      <label for="manRemoveRolls">Roll Numbers to mark ABSENT / remove (suspected proxy — optional)</label>
+      <div class="small">Removes an existing mark (auto or manual) for that session, making them Absent again.</div>
+      <textarea id="manRemoveRolls" placeholder="e.g. 14, 22"></textarea>
+
+      <button class="block" id="manBtn">Update Attendance</button>
       <div id="manMsg"></div>
     </div>
   </div>
@@ -687,21 +693,32 @@
     const btn = this;
     const division = $('manDivision').value, subject = $('manSubject').value, batch = $('manBatch').value;
     const dateStr = $('manDate').value, rollNumbers = $('manRolls').value.trim();
-    if (!division || !subject || !dateStr || !rollNumbers) { msg('manMsg', 'Fill in Division, Subject, Date and Roll Numbers.', 'error'); return; }
+    const removeRollNumbers = $('manRemoveRolls').value.trim();
+    if (!division || !subject || !dateStr || (!rollNumbers && !removeRollNumbers)) {
+      msg('manMsg', 'Fill in Division, Subject, Date, and at least one of the two roll-number boxes.', 'error');
+      return;
+    }
     if (manType === 'PRACTICAL' && !batch) { msg('manMsg', 'Select a Batch for a Practical session.', 'error'); return; }
-    btn.disabled = true; btn.textContent = 'Marking...';
+    btn.disabled = true; btn.textContent = 'Updating...';
     try {
-      const r = await api('manualAttendance', { division, subject, sessionType: manType, batch, mode: manMode, dateStr, rollNumbers });
+      const r = await api('manualAttendance', { division, subject, sessionType: manType, batch, mode: manMode, dateStr, rollNumbers, removeRollNumbers });
       if (r.ok) {
-        let text = 'Marked ' + r.markedCount + ' of ' + r.rosterCount + ' students present.';
-        if (r.invalidRolls && r.invalidRolls.length) text += ' Not found: ' + r.invalidRolls.join(', ');
-        msg('manMsg', text, 'ok');
+        const lines = [];
+        if (r.reusedExisting) lines.push('Updated the existing session for this date (same session as the self-marked attendance) — no duplicate session or report column created.');
+        if (r.newlyMarked && r.newlyMarked.length) lines.push('✅ Newly marked present: ' + r.newlyMarked.join(', '));
+        if (r.alreadyMarked && r.alreadyMarked.length) lines.push('ℹ️ Already marked, skipped: ' + r.alreadyMarked.map(a => a.rollNo + ' (' + (a.source === 'AUTO' ? 'automatically, through link' : 'manually') + ')').join(', '));
+        if (r.removed && r.removed.length) lines.push('🚫 Marked absent (removed): ' + r.removed.join(', '));
+        if (r.notRemoved && r.notRemoved.length) lines.push('ℹ️ Already absent, nothing to remove: ' + r.notRemoved.join(', '));
+        if (r.invalidRolls && r.invalidRolls.length) lines.push('⚠️ Not found in roster: ' + r.invalidRolls.join(', '));
+        msg('manMsg', lines.join('\n'), 'ok');
+        $('manMsg').style.whiteSpace = 'pre-line';
         $('manRolls').value = '';
+        $('manRemoveRolls').value = '';
       } else {
-        msg('manMsg', r.message || 'Could not mark attendance.', 'error');
+        msg('manMsg', r.message || 'Could not update attendance.', 'error');
       }
     } catch (e) { msg('manMsg', 'Could not reach the server.', 'error'); }
-    btn.disabled = false; btn.textContent = 'Mark Attendance';
+    btn.disabled = false; btn.textContent = 'Update Attendance';
   });
 
   // ================= ADMIN TAB =================
