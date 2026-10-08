@@ -133,7 +133,12 @@
         <option value="all">All time</option>
         <option value="month">This month</option>
         <option value="week">This week</option>
+        <option value="day">Day-wise (pick a date)</option>
       </select>
+      <div id="repDateWrap" class="hidden">
+        <label for="repDate">Date</label>
+        <input type="date" id="repDate">
+      </div>
       <button class="block" id="reportBtn">Generate Report</button>
       <div id="reportMsg"></div>
       <div class="row" id="reportDownloadRow" style="display:none; margin-top:10px;">
@@ -529,14 +534,21 @@
   });
   let lastReport = null;   // kept so the Excel/PDF download buttons can rebuild the report without another server call
 
+  $('repRange').addEventListener('change', function() {
+    $('repDateWrap').classList.toggle('hidden', this.value !== 'day');
+  });
+  if (!$('repDate').value) $('repDate').value = new Date().toISOString().slice(0, 10);
+
   $('reportBtn').addEventListener('click', async function() {
     const btn = this;
     const division = $('repDivision').value, subject = $('repSubject').value, batch = $('repBatch').value, rangeType = $('repRange').value;
+    const dateStr = $('repDate').value;
     if (!division || !subject) { msg('reportMsg', 'Select a Division and Subject first.', 'error'); return; }
+    if (rangeType === 'day' && !dateStr) { msg('reportMsg', 'Pick a date for the Day-wise report.', 'error'); return; }
     btn.disabled = true; btn.textContent = 'Generating...';
     msg('reportMsg', '', ''); $('reportTableWrap').innerHTML = ''; $('reportDownloadRow').style.display = 'none'; $('deviceFlagNote').style.display = 'none';
     try {
-      const r = await api('generateReport', { division, subject, batch, rangeType });
+      const r = await api('generateReport', { division, subject, batch, rangeType, dateStr: rangeType === 'day' ? dateStr : undefined });
       if (r.ok) {
         msg('reportMsg', r.subjectName + ', ' + r.studentCount + ' students x ' + r.sessionCount + ' sessions (' + r.regularCount + ' Regular, ' + r.adjustedCount + ' Adjusted). Also saved to the "Report" tab.', 'ok');
         lastReport = r;
